@@ -1,11 +1,11 @@
 :root {
-  --bg: #090b13;
-  --panel: rgba(255, 255, 255, 0.08);
-  --panel-border: rgba(255, 255, 255, 0.15);
-  --text: #f4f7ff;
-  --text-soft: #a6b0cf;
-  --primary: #6f8cff;
-  --neon: #38f7ff;
+  --bg: #f4f7ff;
+  --panel: rgba(255, 255, 255, 0.86);
+  --panel-border: rgba(103, 124, 176, 0.2);
+  --text: #1e2845;
+  --text-soft: #5f6d95;
+  --primary: #5f7bff;
+  --neon: #35cfe8;
 }
 
 * { box-sizing: border-box; }
@@ -14,7 +14,7 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  background: radial-gradient(circle at 10% 10%, #141a35, var(--bg) 40%), var(--bg);
+  background: radial-gradient(circle at 10% 10%, #dde6ff, var(--bg) 42%), var(--bg);
   font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
   overflow: hidden;
 }
@@ -28,9 +28,9 @@ body {
   pointer-events: none;
 }
 
-.orb-1 { width: 280px; height: 280px; background: #4d7bff; top: -40px; left: -60px; }
-.orb-2 { width: 220px; height: 220px; background: #16ffe1; bottom: -30px; right: 8%; animation-delay: -4s; }
-.orb-3 { width: 180px; height: 180px; background: #ae56ff; top: 25%; right: -40px; animation-delay: -7s; }
+.orb-1 { width: 280px; height: 280px; background: #9db3ff; top: -40px; left: -60px; }
+.orb-2 { width: 220px; height: 220px; background: #8ff0ff; bottom: -30px; right: 8%; animation-delay: -4s; }
+.orb-3 { width: 180px; height: 180px; background: #d0a9ff; top: 25%; right: -40px; animation-delay: -7s; }
 
 @keyframes float {
   0%, 100% { transform: translateY(0) scale(1); }
@@ -50,7 +50,7 @@ body {
   background: var(--panel);
   backdrop-filter: blur(16px);
   border: 1px solid var(--panel-border);
-  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 12px 30px rgba(73, 89, 132, 0.16);
 }
 
 .panel {
@@ -75,8 +75,8 @@ body {
 .brand p { margin: 2px 0 0; color: var(--text-soft); font-size: 0.82rem; }
 
 .card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(118, 137, 183, 0.2);
   border-radius: 14px;
   padding: 12px;
   margin-top: 12px;
@@ -103,8 +103,8 @@ h3 { margin: 0 0 10px 0; font-size: 0.95rem; }
   gap: 8px;
   padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(118,137,183,0.22);
+  background: rgba(255,255,255,0.8);
   cursor: pointer;
   transition: all .2s ease;
 }
@@ -119,17 +119,17 @@ h3 { margin: 0 0 10px 0; font-size: 0.95rem; }
   gap: 6px;
 }
 .session-action-btn {
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 1px solid rgba(118,137,183,0.3);
   border-radius: 8px;
-  background: rgba(0,0,0,0.15);
+  background: rgba(227,234,255,0.75);
   color: var(--text-soft);
   font-size: .72rem;
   padding: 3px 8px;
   cursor: pointer;
 }
 .session-action-btn:hover {
-  color: #fff;
-  border-color: rgba(255,255,255,0.35);
+  color: #2a3764;
+  border-color: rgba(95,123,255,0.45);
 }
 .session-action-btn.danger:hover {
   color: #ffc6c6;
@@ -144,8 +144,8 @@ h3 { margin: 0 0 10px 0; font-size: 0.95rem; }
 select, textarea {
   width: 100%;
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.15);
-  background: rgba(8, 14, 28, 0.6);
+  border: 1px solid rgba(118,137,183,0.28);
+  background: rgba(255, 255, 255, 0.95);
   color: var(--text);
   padding: 10px;
 }
@@ -221,12 +221,12 @@ select, textarea {
 }
 
 .assistant {
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.92);
+  border: 1px solid rgba(118,137,183,0.22);
 }
 
 .composer {
-  border-top: 1px solid rgba(255,255,255,0.12);
+  border-top: 1px solid rgba(118,137,183,0.2);
   padding-top: 12px;
 }
 
@@ -237,8 +237,8 @@ select, textarea {
   gap: 8px;
   padding: 8px 12px;
   border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(118,137,183,0.24);
+  background: rgba(255,255,255,0.78);
   color: var(--text-soft);
   margin-right: auto;
 }
@@ -259,7 +259,7 @@ select, textarea {
   font-weight: 700;
   box-shadow: 0 10px 24px rgba(56, 247, 255, 0.35);
 }
-.btn.ghost { background: rgba(255,255,255,0.1); }
+.btn.ghost { background: rgba(223, 231, 255, 0.82); color: #24315a; }
 
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
