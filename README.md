@@ -5,7 +5,7 @@
 - Python FastAPI 后端 + 原生 HTML/JS 前端。
 - 对接 AWS Bedrock（你提到的 Redrock，这里按 Bedrock 实现）并支持模型切换。
 - 会话管理（创建/切换会话）和历史消息持久化（SQLite）。
-- “自我进化”：根据需求调用 AI 生成新能力模块（Python 文件），并动态执行。
+- “自我进化”：和会话统一到同一聊天入口（进化模式或 `/evolve xxx`），根据需求生成新能力模块（Python 文件）并动态执行。
 - 历史对话沉淀为“经验”（memories），在后续对话中检索并注入上下文。
 
 ## 1) 本地运行
@@ -34,7 +34,7 @@ export BEDROCK_MODELS="anthropic.claude-3-5-sonnet-20240620-v1:0,amazon.nova-pro
 ## 3) 关键接口
 
 - `GET /api/models`: 模型列表 + 是否启用 Bedrock。
-- `POST /api/chat`: 对话（自动创建会话、保存消息、检索经验、调用动态能力）。
+- `POST /api/chat`: 统一对话入口（chat/evolve），自动创建会话、保存消息、检索经验、调用动态能力。
 - `POST /api/evolve`: 根据需求生成新能力模块。
 - `GET /api/sessions`: 会话列表。
 - `GET /api/sessions/{id}/messages`: 指定会话历史。
@@ -43,7 +43,7 @@ export BEDROCK_MODELS="anthropic.claude-3-5-sonnet-20240620-v1:0,amazon.nova-pro
 
 ## 4) 自我进化机制说明
 
-`/api/evolve` 会把用户需求发给模型，要求返回 JSON：
+当 `POST /api/chat` 的 `mode=evolve`（或输入 `/evolve 需求`）时，会把用户需求发给模型，要求返回 JSON：
 
 ```json
 {

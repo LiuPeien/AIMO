@@ -118,6 +118,7 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     model_id: str
     message: str = Field(min_length=1)
+    mode: str = "chat"
 
 
 class SessionCreateRequest(BaseModel):
@@ -319,22 +320,34 @@ def chat(payload: ChatRequest) -> dict[str, Any]:
         (str(uuid.uuid4()), sid, payload.message, payload.model_id, now),
     )
 
-    memories = fetch_relevant_memories(conn, payload.message)
-    dynamic_output = run_dynamic_abilities(payload.message)
+    evolve_mode = payload.mode == "evolve" or payload.message.strip().startswith("/evolve ")
+    if evolve_mode:
+        requirement = payload.message.replace("/evolve", "", 1).strip() or payload.message.strip()
+        created = create_module_from_ai(payload.model_id, requirement)
+        reply = (
+            f"✅ 已在当前会话中完成进化：{created['module_name']}\n"
+            f"模块位置：{created['file_path']}\n"
+            "你现在可以继续在本会话里直接使用这个新能力。"
+        )
+        memories = [f"evolution:{created['module_name']}"]
+        dynamic_output = ""
+    else:
+        memories = fetch_relevant_memories(conn, payload.message)
+        dynamic_output = run_dynamic_abilities(payload.message)
 
-    prior = conn.execute(
-        "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 6", (sid,)
-    ).fetchall()
-    history = "\n".join(f"{r['role']}: {r['content']}" for r in reversed(prior))
+        prior = conn.execute(
+            "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 6", (sid,)
+        ).fetchall()
+        history = "\n".join(f"{r['role']}: {r['content']}" for r in reversed(prior))
 
-    prompt = (
-        "你是可扩展 AI Agent。结合对话历史、历史经验和动态模块输出回答。"
-        f"\n历史:\n{history}"
-        f"\n经验:\n{memories}"
-        f"\n模块输出:\n{dynamic_output}"
-        f"\n用户问题:\n{payload.message}"
-    )
-    reply = call_ai(payload.model_id, prompt)
+        prompt = (
+            "你是可扩展 AI Agent。结合对话历史、历史经验和动态模块输出回答。"
+            f"\n历史:\n{history}"
+            f"\n经验:\n{memories}"
+            f"\n模块输出:\n{dynamic_output}"
+            f"\n用户问题:\n{payload.message}"
+        )
+        reply = call_ai(payload.model_id, prompt)
 
     conn.execute(
         "INSERT INTO messages (id, session_id, role, content, model_id, created_at) VALUES (?, ?, 'assistant', ?, ?, ?)",
@@ -344,7 +357,13 @@ def chat(payload: ChatRequest) -> dict[str, Any]:
     save_experience(conn, payload.message, reply)
     conn.commit()
     conn.close()
-    return {"session_id": sid, "reply": reply, "memories_used": memories, "ability_output": dynamic_output}
+    return {
+        "session_id": sid,
+        "reply": reply,
+        "memories_used": memories,
+        "ability_output": dynamic_output,
+        "mode": "evolve" if evolve_mode else "chat",
+    }
 
 
 @app.post("/api/evolve")

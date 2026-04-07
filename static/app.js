@@ -63,19 +63,29 @@ async function refreshAbilities() {
 
 async function sendMessage() {
   const input = document.getElementById('messageInput');
+  const evolveMode = document.getElementById('evolveMode').checked;
   const text = input.value.trim();
   if (!text) return;
 
   appendMessage('user', text);
   input.value = '';
+
   const modelId = document.getElementById('modelSelect').value;
   const data = await api('/api/chat', {
     method: 'POST',
-    body: JSON.stringify({ session_id: state.sessionId, model_id: modelId, message: text }),
+    body: JSON.stringify({
+      session_id: state.sessionId,
+      model_id: modelId,
+      message: text,
+      mode: evolveMode ? 'evolve' : 'chat',
+    }),
   });
 
   state.sessionId = data.session_id;
   appendMessage('assistant', data.reply);
+  if (data.mode === 'evolve') {
+    refreshAbilities();
+  }
   refreshSessions();
 }
 
@@ -87,18 +97,6 @@ document.getElementById('messageInput').addEventListener('keydown', (e) => {
     sendMessage();
   }
 });
-
-document.getElementById('evolveBtn').onclick = async () => {
-  const requirement = prompt('描述想新增的能力模块：');
-  if (!requirement) return;
-  const modelId = document.getElementById('modelSelect').value;
-  const data = await api('/api/evolve', {
-    method: 'POST',
-    body: JSON.stringify({ model_id: modelId, requirement }),
-  });
-  alert(`完成: ${data.module_name}`);
-  refreshAbilities();
-};
 
 document.getElementById('newSessionBtn').onclick = async () => {
   const s = await api('/api/sessions', { method: 'POST', body: JSON.stringify({ title: '新会话' }) });
