@@ -7,40 +7,25 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <div class="bg-orb orb-1"></div>
-    <div class="bg-orb orb-2"></div>
-    <div class="bg-orb orb-3"></div>
-
     <div class="layout">
-      <aside class="glass panel">
+      <aside class="panel sidebar">
         <div class="brand">
           <div class="logo">AI</div>
-          <div>
-            <h2>Neon Agent</h2>
-            <p>Dynamic Intelligence</p>
-          </div>
+          <h2>Agent</h2>
         </div>
 
         <section class="card">
           <div class="section-title">
             <h3>会话</h3>
-            <button id="newSessionBtn" class="btn ghost">+ 新建</button>
+            <button id="newSessionBtn" class="icon-btn" title="新建会话" aria-label="新建会话">＋</button>
           </div>
           <ul id="sessions" class="session-list"></ul>
         </section>
-
-        <section class="card">
-          <h3>能力模块</h3>
-          <div id="abilities" class="ability-list"></div>
-        </section>
       </aside>
 
-      <main class="glass panel main-panel">
+      <main class="panel main-panel">
         <header class="chat-header">
-          <div class="chat-title-group">
-            <h3>对话窗口</h3>
-            <span class="status-dot">● 在线</span>
-          </div>
+          <h3>对话窗口</h3>
           <div class="model-inline">
             <label for="modelSelect">模型</label>
             <select id="modelSelect"></select>
@@ -52,10 +37,6 @@
         <div class="composer">
           <textarea id="messageInput" placeholder="输入你的想法...（Shift+Enter换行）"></textarea>
           <div class="row">
-            <label class="mode-toggle">
-              <input type="checkbox" id="evolveMode" />
-              <span>进化模式</span>
-            </label>
             <button id="sendBtn" class="btn primary">发送</button>
           </div>
         </div>

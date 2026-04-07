@@ -31,6 +31,7 @@ async function refreshSessions() {
     const li = document.createElement('li');
     li.className = 'session-item';
     li.dataset.id = s.id;
+
     const title = document.createElement('span');
     title.className = 'session-title';
     title.textContent = s.title;
@@ -40,7 +41,9 @@ async function refreshSessions() {
 
     const editBtn = document.createElement('button');
     editBtn.className = 'session-action-btn';
-    editBtn.textContent = '编辑';
+    editBtn.title = '重命名会话';
+    editBtn.setAttribute('aria-label', '重命名会话');
+    editBtn.textContent = '✎';
     editBtn.onclick = async (e) => {
       e.stopPropagation();
       const newTitle = window.prompt('请输入新的会话名称', s.title);
@@ -51,15 +54,14 @@ async function refreshSessions() {
         method: 'PATCH',
         body: JSON.stringify({ title: cleaned }),
       });
-      if (state.sessionId === s.id) {
-        state.sessionId = s.id;
-      }
       refreshSessions();
     };
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'session-action-btn danger';
-    deleteBtn.textContent = '删除';
+    deleteBtn.title = '删除会话';
+    deleteBtn.setAttribute('aria-label', '删除会话');
+    deleteBtn.textContent = '🗑';
     deleteBtn.onclick = async (e) => {
       e.stopPropagation();
       const ok = window.confirm(`确认删除会话「${s.title}」吗？`);
@@ -100,14 +102,8 @@ async function refreshModels() {
   });
 }
 
-async function refreshAbilities() {
-  const data = await api('/api/abilities');
-  document.getElementById('abilities').textContent = data.map((a) => `• ${a.name}`).join('\n') || '暂无';
-}
-
 async function sendMessage() {
   const input = document.getElementById('messageInput');
-  const evolveMode = document.getElementById('evolveMode').checked;
   const text = input.value.trim();
   if (!text) return;
 
@@ -121,15 +117,12 @@ async function sendMessage() {
       session_id: state.sessionId,
       model_id: modelId,
       message: text,
-      mode: evolveMode ? 'evolve' : 'chat',
+      mode: 'chat',
     }),
   });
 
   state.sessionId = data.session_id;
   appendMessage('assistant', data.reply);
-  if (data.mode === 'evolve') {
-    refreshAbilities();
-  }
   refreshSessions();
 }
 
@@ -151,4 +144,3 @@ document.getElementById('newSessionBtn').onclick = async () => {
 
 refreshModels();
 refreshSessions();
-refreshAbilities();
