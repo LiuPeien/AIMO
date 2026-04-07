@@ -10,9 +10,17 @@ function appendMessage(role, content) {
   const chat = document.getElementById('chat');
   const div = document.createElement('div');
   div.className = `msg ${role}`;
+  div.dataset.role = role === 'user' ? '你' : 'Agent';
   div.textContent = content;
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
+}
+
+function setActiveSessionStyles() {
+  document.querySelectorAll('.session-item').forEach((el) => {
+    if (el.dataset.id === state.sessionId) el.classList.add('active');
+    else el.classList.remove('active');
+  });
 }
 
 async function refreshSessions() {
@@ -21,15 +29,19 @@ async function refreshSessions() {
   ul.innerHTML = '';
   list.forEach((s) => {
     const li = document.createElement('li');
+    li.className = 'session-item';
+    li.dataset.id = s.id;
     li.textContent = s.title;
     li.onclick = async () => {
       state.sessionId = s.id;
       const msgs = await api(`/api/sessions/${s.id}/messages`);
       document.getElementById('chat').innerHTML = '';
       msgs.forEach((m) => appendMessage(m.role, m.content));
+      setActiveSessionStyles();
     };
     ul.appendChild(li);
   });
+  setActiveSessionStyles();
 }
 
 async function refreshModels() {
@@ -49,10 +61,11 @@ async function refreshAbilities() {
   document.getElementById('abilities').textContent = data.map((a) => `• ${a.name}`).join('\n') || '暂无';
 }
 
-document.getElementById('sendBtn').onclick = async () => {
+async function sendMessage() {
   const input = document.getElementById('messageInput');
   const text = input.value.trim();
   if (!text) return;
+
   appendMessage('user', text);
   input.value = '';
   const modelId = document.getElementById('modelSelect').value;
@@ -60,10 +73,20 @@ document.getElementById('sendBtn').onclick = async () => {
     method: 'POST',
     body: JSON.stringify({ session_id: state.sessionId, model_id: modelId, message: text }),
   });
+
   state.sessionId = data.session_id;
   appendMessage('assistant', data.reply);
   refreshSessions();
-};
+}
+
+document.getElementById('sendBtn').onclick = sendMessage;
+
+document.getElementById('messageInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
 
 document.getElementById('evolveBtn').onclick = async () => {
   const requirement = prompt('描述想新增的能力模块：');

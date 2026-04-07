@@ -7,23 +7,52 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+    <div class="bg-orb orb-3"></div>
+
     <div class="layout">
-      <aside>
-        <h3>会话</h3>
-        <button id="newSessionBtn">+ 新会话</button>
-        <ul id="sessions"></ul>
-        <h3>模型</h3>
-        <select id="modelSelect"></select>
-        <h3>能力</h3>
-        <div id="abilities"></div>
+      <aside class="glass panel">
+        <div class="brand">
+          <div class="logo">AI</div>
+          <div>
+            <h2>Neon Agent</h2>
+            <p>Dynamic Intelligence</p>
+          </div>
+        </div>
+
+        <section class="card">
+          <div class="section-title">
+            <h3>会话</h3>
+            <button id="newSessionBtn" class="btn ghost">+ 新建</button>
+          </div>
+          <ul id="sessions" class="session-list"></ul>
+        </section>
+
+        <section class="card">
+          <h3>模型</h3>
+          <select id="modelSelect"></select>
+        </section>
+
+        <section class="card">
+          <h3>能力模块</h3>
+          <div id="abilities" class="ability-list"></div>
+        </section>
       </aside>
-      <main>
+
+      <main class="glass panel main-panel">
+        <header class="chat-header">
+          <h3>对话窗口</h3>
+          <span class="status-dot">● 在线</span>
+        </header>
+
         <div id="chat"></div>
+
         <div class="composer">
-          <textarea id="messageInput" placeholder="输入内容..."></textarea>
+          <textarea id="messageInput" placeholder="输入你的想法...（Shift+Enter换行）"></textarea>
           <div class="row">
-            <button id="sendBtn">发送</button>
-            <button id="evolveBtn">自我进化</button>
+            <button id="sendBtn" class="btn primary">发送</button>
+            <button id="evolveBtn" class="btn neon">自我进化</button>
           </div>
         </div>
       </main>
