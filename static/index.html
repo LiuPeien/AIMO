@@ -30,11 +30,6 @@
         </section>
 
         <section class="card">
-          <h3>模型</h3>
-          <select id="modelSelect"></select>
-        </section>
-
-        <section class="card">
           <h3>能力模块</h3>
           <div id="abilities" class="ability-list"></div>
         </section>
@@ -42,8 +37,14 @@
 
       <main class="glass panel main-panel">
         <header class="chat-header">
-          <h3>对话窗口</h3>
-          <span class="status-dot">● 在线</span>
+          <div class="chat-title-group">
+            <h3>对话窗口</h3>
+            <span class="status-dot">● 在线</span>
+          </div>
+          <div class="model-inline">
+            <label for="modelSelect">模型</label>
+            <select id="modelSelect"></select>
+          </div>
         </header>
 
         <div id="chat"></div>

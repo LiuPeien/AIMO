@@ -31,7 +31,51 @@ async function refreshSessions() {
     const li = document.createElement('li');
     li.className = 'session-item';
     li.dataset.id = s.id;
-    li.textContent = s.title;
+    const title = document.createElement('span');
+    title.className = 'session-title';
+    title.textContent = s.title;
+
+    const actions = document.createElement('div');
+    actions.className = 'session-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'session-action-btn';
+    editBtn.textContent = '编辑';
+    editBtn.onclick = async (e) => {
+      e.stopPropagation();
+      const newTitle = window.prompt('请输入新的会话名称', s.title);
+      if (!newTitle) return;
+      const cleaned = newTitle.trim();
+      if (!cleaned) return;
+      await api(`/api/sessions/${s.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title: cleaned }),
+      });
+      if (state.sessionId === s.id) {
+        state.sessionId = s.id;
+      }
+      refreshSessions();
+    };
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'session-action-btn danger';
+    deleteBtn.textContent = '删除';
+    deleteBtn.onclick = async (e) => {
+      e.stopPropagation();
+      const ok = window.confirm(`确认删除会话「${s.title}」吗？`);
+      if (!ok) return;
+      await api(`/api/sessions/${s.id}`, { method: 'DELETE' });
+      if (state.sessionId === s.id) {
+        state.sessionId = null;
+        document.getElementById('chat').innerHTML = '';
+      }
+      refreshSessions();
+    };
+
+    actions.appendChild(editBtn);
+    actions.appendChild(deleteBtn);
+    li.appendChild(title);
+    li.appendChild(actions);
     li.onclick = async () => {
       state.sessionId = s.id;
       const msgs = await api(`/api/sessions/${s.id}/messages`);
