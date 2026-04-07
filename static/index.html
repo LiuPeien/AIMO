@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Simple AI Agent</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <aside>
+        <h3>会话</h3>
+        <button id="newSessionBtn">+ 新会话</button>
+        <ul id="sessions"></ul>
+        <h3>模型</h3>
+        <select id="modelSelect"></select>
+        <h3>能力</h3>
+        <div id="abilities"></div>
+      </aside>
+      <main>
+        <div id="chat"></div>
+        <div class="composer">
+          <textarea id="messageInput" placeholder="输入内容..."></textarea>
+          <div class="row">
+            <button id="sendBtn">发送</button>
+            <button id="evolveBtn">自我进化</button>
+          </div>
+        </div>
+      </main>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
