@@ -23,6 +23,8 @@ uvicorn app.main:app --reload --port 8000
 
 设置 AWS 凭据后会走真实 Bedrock；不设置则使用 MOCK 回答。
 
+### 方式 A：环境变量（优先级最高）
+
 ```bash
 export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
@@ -30,6 +32,20 @@ export AWS_REGION=us-east-1
 # 可选：自定义 UI 下拉模型列表
 export BEDROCK_MODELS="anthropic.claude-3-5-sonnet-20240620-v1:0,amazon.nova-pro-v1:0"
 ```
+
+### 方式 B：配置文件（适合统一管理 token）
+
+1. 复制模板并填写：
+
+```bash
+cp config/tokens.example.json config/tokens.json
+```
+
+2. 在 `config/tokens.json` 中配置 AWS 与其他模块 token。
+
+说明：
+- 已将 `config/tokens.json` 加入 `.gitignore`，避免误提交敏感信息。
+- 环境变量优先于配置文件（方便线上覆盖）。
 
 ## 3) 关键接口
 

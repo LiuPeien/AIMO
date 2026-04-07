@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "agent.db"
 MODULE_DIR = ROOT / "modules"
+TOKEN_CONFIG_PATH = ROOT / "config" / "tokens.json"
 
 
 def utc_now() -> str:
@@ -72,6 +73,34 @@ def init_db() -> None:
     conn.close()
 
 
+def load_token_config() -> dict[str, Any]:
+    if not TOKEN_CONFIG_PATH.exists():
+        return {}
+    try:
+        data = json.loads(TOKEN_CONFIG_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+TOKEN_CONFIG = load_token_config()
+
+
+def config_value(env_key: str, config_path: tuple[str, ...], default: str = "") -> str:
+    env_value = os.getenv(env_key)
+    if env_value:
+        return env_value
+
+    current: Any = TOKEN_CONFIG
+    for part in config_path:
+        if not isinstance(current, dict):
+            return default
+        current = current.get(part)
+        if current is None:
+            return default
+    return str(current) if current else default
+
+
 def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -79,7 +108,7 @@ def get_conn() -> sqlite3.Connection:
 
 
 def configured_models() -> list[str]:
-    raw = os.getenv("BEDROCK_MODELS", "")
+    raw = config_value("BEDROCK_MODELS", ("bedrock", "models"), "")
     if raw.strip():
         return [m.strip() for m in raw.split(",") if m.strip()]
     return [
@@ -92,9 +121,18 @@ def configured_models() -> list[str]:
 @dataclass
 class BedrockClient:
     region: str
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_session_token: str = ""
 
     def __post_init__(self) -> None:
-        self.client = boto3.client("bedrock-runtime", region_name=self.region)
+        client_kwargs: dict[str, str] = {"region_name": self.region}
+        if self.aws_access_key_id and self.aws_secret_access_key:
+            client_kwargs["aws_access_key_id"] = self.aws_access_key_id
+            client_kwargs["aws_secret_access_key"] = self.aws_secret_access_key
+            if self.aws_session_token:
+                client_kwargs["aws_session_token"] = self.aws_session_token
+        self.client = boto3.client("bedrock-runtime", **client_kwargs)
 
     def generate(self, model_id: str, prompt: str) -> str:
         body = {
@@ -145,13 +183,23 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
 def is_bedrock_enabled() -> bool:
-    return bool(os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"))
+    access_key = config_value("AWS_ACCESS_KEY_ID", ("aws", "access_key_id"), "")
+    secret_key = config_value("AWS_SECRET_ACCESS_KEY", ("aws", "secret_access_key"), "")
+    return bool(access_key and secret_key)
 
 
 def call_ai(model_id: str, prompt: str) -> str:
     if is_bedrock_enabled():
-        region = os.getenv("AWS_REGION", "us-east-1")
-        return BedrockClient(region=region).generate(model_id=model_id, prompt=prompt)
+        region = config_value("AWS_REGION", ("aws", "region"), "us-east-1")
+        access_key = config_value("AWS_ACCESS_KEY_ID", ("aws", "access_key_id"), "")
+        secret_key = config_value("AWS_SECRET_ACCESS_KEY", ("aws", "secret_access_key"), "")
+        session_token = config_value("AWS_SESSION_TOKEN", ("aws", "session_token"), "")
+        return BedrockClient(
+            region=region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            aws_session_token=session_token,
+        ).generate(model_id=model_id, prompt=prompt)
     return (
         "[MOCK 回答] 当前未配置 AWS 认证，因此返回模拟结果。\n"
         f"模型: {model_id}\n"
