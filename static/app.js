@@ -68,7 +68,6 @@ async function sendMessage() {
 
   appendMessage('user', text);
   input.value = '';
-
   const modelId = document.getElementById('modelSelect').value;
   const data = await api('/api/chat', {
     method: 'POST',
