@@ -33,3 +33,20 @@ def test_chat_evolve_mode():
     })
     assert res.status_code == 200
     assert res.json()['mode'] == 'evolve'
+
+
+def test_session_update_and_delete():
+    init_db()
+    client = TestClient(app)
+    created = client.post('/api/sessions', json={'title': 'old'}).json()
+    sid = created['session_id']
+
+    updated = client.patch(f'/api/sessions/{sid}', json={'title': 'new title'})
+    assert updated.status_code == 200
+    assert updated.json()['title'] == 'new title'
+
+    deleted = client.delete(f'/api/sessions/{sid}')
+    assert deleted.status_code == 200
+
+    sessions = client.get('/api/sessions').json()
+    assert all(item['id'] != sid for item in sessions)

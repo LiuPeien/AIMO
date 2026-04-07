@@ -125,6 +125,10 @@ class SessionCreateRequest(BaseModel):
     title: str = "新会话"
 
 
+class SessionUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=100)
+
+
 class EvolveRequest(BaseModel):
     model_id: str
     requirement: str = Field(min_length=6)
@@ -290,6 +294,34 @@ def list_sessions() -> list[dict[str, Any]]:
     rows = conn.execute("SELECT * FROM sessions ORDER BY updated_at DESC").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+@app.patch("/api/sessions/{session_id}")
+def update_session(session_id: str, payload: SessionUpdateRequest) -> dict[str, str]:
+    conn = get_conn()
+    exists = conn.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    if not exists:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Session not found")
+    now = utc_now()
+    conn.execute("UPDATE sessions SET title = ?, updated_at = ? WHERE id = ?", (payload.title, now, session_id))
+    conn.commit()
+    conn.close()
+    return {"session_id": session_id, "title": payload.title}
+
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session(session_id: str) -> dict[str, str]:
+    conn = get_conn()
+    exists = conn.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    if not exists:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Session not found")
+    conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+    conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+    conn.commit()
+    conn.close()
+    return {"session_id": session_id, "message": "deleted"}
 
 
 @app.get("/api/sessions/{session_id}/messages")

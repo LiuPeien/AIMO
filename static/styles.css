@@ -97,12 +97,43 @@ h3 { margin: 0 0 10px 0; font-size: 0.95rem; }
 }
 
 .session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.03);
   cursor: pointer;
   transition: all .2s ease;
+}
+.session-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-actions {
+  display: flex;
+  gap: 6px;
+}
+.session-action-btn {
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 8px;
+  background: rgba(0,0,0,0.15);
+  color: var(--text-soft);
+  font-size: .72rem;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.session-action-btn:hover {
+  color: #fff;
+  border-color: rgba(255,255,255,0.35);
+}
+.session-action-btn.danger:hover {
+  color: #ffc6c6;
+  border-color: rgba(255, 130, 130, 0.55);
 }
 .session-item:hover, .session-item.active {
   transform: translateY(-1px);
@@ -132,9 +163,30 @@ select, textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 14px;
   margin-bottom: 10px;
 }
+.chat-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
 .status-dot { color: #7dff9e; font-size: .84rem; }
+.model-inline {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-soft);
+  min-width: 320px;
+}
+.model-inline label {
+  font-size: .86rem;
+  white-space: nowrap;
+}
+.model-inline select {
+  min-width: 0;
+}
 
 #chat {
   flex: 1;
