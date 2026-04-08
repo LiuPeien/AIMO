@@ -166,4 +166,13 @@ cp config/tokens.example.json config/tokens.json
 默认流程：
 `先读代码 -> 再出计划 -> 确认后修改 -> 验证 -> 汇报`。
 
-说明：当前版本在本地执行层已具备工具调用与审批控制；模型编排先采用现有后端主循环，后续可平滑替换到 Responses API 循环。
+新增 ReAct 循环约束（Agent Chat Turn）：
+- 最大步数：`MAX_REACT_STEPS=40`
+- 超时：`300` 秒
+- 单轮内同参数工具调用自动去重，避免重复执行
+
+说明：当前版本在本地执行层已具备工具调用与审批控制，并已采用有界 ReAct（Think -> Act -> Observe）循环。
+
+## 架构文档（补充）
+
+- EvoAgent 详细架构说明（中文）：`docs/evoagent_architecture_cn.md`
