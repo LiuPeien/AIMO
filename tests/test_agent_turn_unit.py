@@ -32,3 +32,21 @@ def test_run_agent_chat_turn_executes_after_confirmation(monkeypatch):
 
     assert result["execution"]["executed"] is True
     assert result["execution"]["outputs"][0]["tool"] == "list_dir"
+    assert result["execution"]["process"][0]["status"] == "success"
+
+
+def test_build_agent_user_report_contains_three_sections():
+    report = main.build_agent_user_report(
+        {
+            "parsed": True,
+            "actions": [{"tool": "list_dir", "args": {"path": "."}}],
+            "execution": {
+                "executed": True,
+                "process": [{"tool": "list_dir", "args": {"path": "."}, "status": "success"}],
+                "outputs": [{"tool": "list_dir", "result": {"path": ".", "items": []}}],
+            },
+        }
+    )
+    assert "[Agent 解析结果]" in report
+    assert "[Agent 执行过程]" in report
+    assert "[Agent 执行结果]" in report

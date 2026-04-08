@@ -805,6 +805,46 @@ def run_agent_chat_turn(model_id: str, user_message: str, *, confirmed: bool) ->
         "execution": execution,
     }
 
+
+def build_agent_user_report(agent_result: dict[str, Any]) -> str:
+    """Human-readable report for chat UI: parse result -> execution process -> outputs."""
+    lines: list[str] = ["[Agent 解析结果]"]
+    lines.append(f"- 解析成功: {agent_result.get('parsed', False)}")
+    actions = agent_result.get("actions", [])
+    lines.append(f"- 识别动作数: {len(actions)}")
+    if actions:
+        for idx, action in enumerate(actions, start=1):
+            lines.append(f"  {idx}. {action.get('tool')} args={action.get('args')}")
+
+    execution = agent_result.get("execution", {})
+    lines.append("")
+    lines.append("[Agent 执行过程]")
+    if execution.get("executed") is False and execution.get("reason"):
+        lines.append(f"- 状态: 未执行 ({execution.get('reason')})")
+    else:
+        lines.append(f"- 状态: {'执行完成' if execution.get('executed') else '执行失败'}")
+    for idx, step in enumerate(execution.get("process", []), start=1):
+        status = step.get("status", "unknown")
+        suffix = f" error={step.get('error')}" if step.get("error") else ""
+        lines.append(f"  {idx}. {step.get('tool')} -> {status}{suffix}")
+
+    lines.append("")
+    lines.append("[Agent 执行结果]")
+    outputs = execution.get("outputs", [])
+    if not outputs:
+        lines.append("- 无结果输出")
+    else:
+        for idx, item in enumerate(outputs, start=1):
+            tool = item.get("tool")
+            result = item.get("result", {})
+            preview = json.dumps(result, ensure_ascii=False)[:300]
+            lines.append(f"  {idx}. {tool}: {preview}")
+    if execution.get("error"):
+        lines.append(f"- 错误: {execution.get('error')}")
+    lines.append("")
+    lines.append("提示：若需要真正执行，请在消息中带上 #confirm。")
+    return "\n".join(lines)
+
 @app.post("/api/chat")
 def chat(payload: ChatRequest) -> dict[str, Any]:
     conn = get_conn()
@@ -838,7 +878,7 @@ def chat(payload: ChatRequest) -> dict[str, Any]:
         message = payload.message.replace("/agent", "", 1).strip() or payload.message.strip()
         confirmed = "#confirm" in payload.message
         result = run_agent_chat_turn(payload.model_id, message, confirmed=confirmed)
-        reply = json.dumps(result, ensure_ascii=False)
+        reply = build_agent_user_report(result)
         memories = ["agent_mode"]
         dynamic_output = ""
     else:
@@ -871,7 +911,7 @@ def chat(payload: ChatRequest) -> dict[str, Any]:
         "reply": reply,
         "memories_used": memories,
         "ability_output": dynamic_output,
-        "mode": "evolve" if evolve_mode else "chat",
+        "mode": "evolve" if evolve_mode else ("agent" if agent_mode else "chat"),
     }
 
 

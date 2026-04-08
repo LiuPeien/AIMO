@@ -56,23 +56,42 @@ class AgentOrchestrator:
             raise ToolValidationError("execution requires confirmed=true")
 
         outputs: list[dict[str, Any]] = []
+        process: list[dict[str, Any]] = []
         for action in actions:
             tool = action.get("tool")
             args = action.get("args", {})
-            if tool == "list_dir":
-                outputs.append({"tool": tool, "result": self.toolbox.list_dir(**args)})
-            elif tool == "read_file":
-                outputs.append({"tool": tool, "result": self.toolbox.read_file(**args)})
-            elif tool == "search_code":
-                outputs.append({"tool": tool, "result": self.toolbox.search_code(**args)})
-            elif tool == "write_file":
-                outputs.append({"tool": tool, "result": self.toolbox.write_file(**args)})
-            elif tool == "run_command":
-                outputs.append({"tool": tool, "result": self.toolbox.run_command(**args)})
-            else:
-                raise ToolValidationError(f"unsupported tool: {tool}")
+            step = {"tool": tool, "args": args, "status": "running"}
+            try:
+                if tool == "list_dir":
+                    result = self.toolbox.list_dir(**args)
+                    outputs.append({"tool": tool, "result": result})
+                    step["status"] = "success"
+                elif tool == "read_file":
+                    result = self.toolbox.read_file(**args)
+                    outputs.append({"tool": tool, "result": result})
+                    step["status"] = "success"
+                elif tool == "search_code":
+                    result = self.toolbox.search_code(**args)
+                    outputs.append({"tool": tool, "result": result})
+                    step["status"] = "success"
+                elif tool == "write_file":
+                    result = self.toolbox.write_file(**args)
+                    outputs.append({"tool": tool, "result": result})
+                    step["status"] = "success"
+                elif tool == "run_command":
+                    result = self.toolbox.run_command(**args)
+                    outputs.append({"tool": tool, "result": result})
+                    step["status"] = "success"
+                else:
+                    raise ToolValidationError(f"unsupported tool: {tool}")
+            except Exception as exc:  # noqa: BLE001
+                step["status"] = "failed"
+                step["error"] = str(exc)
+                process.append(step)
+                return {"executed": False, "process": process, "outputs": outputs, "error": str(exc)}
+            process.append(step)
 
-        return {"executed": True, "outputs": outputs}
+        return {"executed": True, "process": process, "outputs": outputs}
 
     def parse_model_response(self, raw_text: str) -> dict[str, Any]:
         """Parse model JSON and normalize tool requests into executable actions.
