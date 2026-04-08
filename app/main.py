@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
@@ -20,19 +20,39 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.executor import ExecutionValidationError, FileEdit, execute_edits
+from app.path_safety import PathSecurityError, safe_iter_files, safe_read_text, safe_write_text, validate_project_path
+from app.planner import build_structured_plan
+from app.verifier import run_post_change_verification
+
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "agent.db"
 MODULE_DIR = ROOT / "modules"
 TOKEN_CONFIG_PATH = ROOT / "config" / "tokens.json"
 
 
+
+CONTROLLED_SELF_MANAGEMENT_RULES = """
+受控自我管理执行规则（必须遵守）：
+1) 只能操作当前项目目录中的文件与子目录，禁止访问项目目录之外路径。
+2) 禁止使用 git、禁止创建分支、禁止提交 commit、禁止生成 PR。
+3) 禁止大范围删除文件或破坏性重构，除非用户明确要求。
+4) 修改代码前必须先阅读相关文件，禁止假设文件或符号存在。
+5) 执行顺序固定：先理解现状 -> 再给改动计划 -> 等用户确认 -> 再修改 -> 修改后验证 -> 最后汇报。
+6) 优先小步、局部、增量改造，避免一次性重写。
+7) 新增能力优先复用现有结构与风格。
+8) 输出必须结构化说明：已读文件、待改文件、原因、风险、验证方式。
+9) 需求不明确时，先基于当前代码给出最合理最小方案，不空泛讨论。
+10) 若结构不支持目标能力，先给最小改造路径。
+""".strip()
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
 def init_db() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    MODULE_DIR.mkdir(parents=True, exist_ok=True)
+    validate_project_path(ROOT, DB_PATH.parent).mkdir(parents=True, exist_ok=True)
+    validate_project_path(ROOT, MODULE_DIR).mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.executescript(
@@ -77,7 +97,7 @@ def load_token_config() -> dict[str, Any]:
     if not TOKEN_CONFIG_PATH.exists():
         return {}
     try:
-        data = json.loads(TOKEN_CONFIG_PATH.read_text(encoding="utf-8"))
+        data = json.loads(safe_read_text(ROOT, TOKEN_CONFIG_PATH))
         return data if isinstance(data, dict) else {}
     except json.JSONDecodeError:
         return {}
@@ -172,6 +192,43 @@ class EvolveRequest(BaseModel):
     requirement: str = Field(min_length=6)
 
 
+class ManagePlanRequest(BaseModel):
+    request: str = Field(min_length=4)
+    focus_paths: list[str] = Field(default_factory=list)
+    max_files: int = Field(default=60, ge=1, le=300)
+
+
+class ExecuteEditRequest(BaseModel):
+    path: str = Field(min_length=1)
+    new_content: str
+    allow_create: bool = False
+    expected_contains: str = ""
+
+
+class ManageExecuteRequest(BaseModel):
+    confirmed: bool = False
+    allowed_files: list[str] = Field(default_factory=list)
+    edits: list[ExecuteEditRequest] = Field(default_factory=list)
+    max_files: int = Field(default=5, ge=1, le=20)
+    verify_after_execute: bool = True
+
+
+class ManageVerifyRequest(BaseModel):
+    changed_files: list[str] = Field(default_factory=list)
+
+
+class ManageWorkflowRequest(BaseModel):
+    step: Literal["plan", "execute"]
+    request: str = ""
+    focus_paths: list[str] = Field(default_factory=list)
+    max_scan_files: int = Field(default=60, ge=1, le=300)
+    confirmed: bool = False
+    allowed_files: list[str] = Field(default_factory=list)
+    edits: list[ExecuteEditRequest] = Field(default_factory=list)
+    max_edit_files: int = Field(default=5, ge=1, le=20)
+    verify_after_execute: bool = True
+
+
 app = FastAPI(title="Simple AI Agent")
 app.add_middleware(
     CORSMiddleware,
@@ -248,7 +305,9 @@ def save_experience(conn: sqlite3.Connection, user_message: str, assistant_messa
 
 def run_dynamic_abilities(input_text: str) -> str:
     outputs: list[str] = []
-    for path in MODULE_DIR.glob("*.py"):
+    for path in safe_iter_files(ROOT, MODULE_DIR):
+        if path.suffix != ".py":
+            continue
         spec = importlib.util.spec_from_file_location(path.stem, path)
         if not spec or not spec.loader:
             continue
@@ -269,7 +328,9 @@ def build_evolution_prompt(requirement: str) -> str:
         "你是一个代码生成器。根据用户要求返回严格 JSON，包含字段:"
         "module_name, module_description, python_code。"
         "python_code 必须定义 handle(text: str) -> str。"
-        "不要包含 markdown。用户需求: "
+        "不要包含 markdown。生成代码时必须遵守以下受控自我管理规则：\n"
+        f"{CONTROLLED_SELF_MANAGEMENT_RULES}\n"
+        "用户需求: "
         + requirement
     )
 
@@ -283,7 +344,7 @@ def create_module_from_ai(model_id: str, requirement: str) -> dict[str, str]:
             raise ValueError("empty module_name")
         code = data["python_code"]
         path = MODULE_DIR / f"{module_name}.py"
-        path.write_text(code, encoding="utf-8")
+        safe_write_text(ROOT, path, code)
         conn = get_conn()
         conn.execute(
             "INSERT OR REPLACE INTO abilities (id, name, description, file_path, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -296,7 +357,7 @@ def create_module_from_ai(model_id: str, requirement: str) -> dict[str, str]:
         fallback = """def handle(text: str) -> str:\n    if '总结' in text:\n        return '动态模块: 我可以做基础总结。'\n    return ''\n"""
         module_name = f"ability_{uuid.uuid4().hex[:8]}"
         path = MODULE_DIR / f"{module_name}.py"
-        path.write_text(fallback, encoding="utf-8")
+        safe_write_text(ROOT, path, fallback)
         conn = get_conn()
         conn.execute(
             "INSERT INTO abilities (id, name, description, file_path, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -305,6 +366,217 @@ def create_module_from_ai(model_id: str, requirement: str) -> dict[str, str]:
         conn.commit()
         conn.close()
         return {"module_name": module_name, "file_path": str(path), "raw": raw}
+
+
+def _resolve_in_project(path_value: str | Path) -> Path:
+    """Unified path guard for all project file operations."""
+    try:
+        return validate_project_path(ROOT, path_value)
+    except PathSecurityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def scan_project_files(limit: int = 120) -> list[str]:
+    """Return a small, deterministic file list for project analysis only."""
+    ignored_parts = {".git", ".pytest_cache", "__pycache__", ".venv", "venv"}
+    files: list[str] = []
+    for path in sorted(safe_iter_files(ROOT, ".")):
+        rel = path.relative_to(ROOT)
+        if any(part in ignored_parts for part in rel.parts):
+            continue
+        files.append(str(rel))
+        if len(files) >= limit:
+            break
+    return files
+
+
+def read_project_file_snippet(rel_path: str, max_chars: int = 1800) -> str:
+    """Read text snippet from a project file for planning context (read-only)."""
+    target = _resolve_in_project(rel_path)
+    try:
+        text = safe_read_text(ROOT, target)
+    except PathSecurityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except UnicodeDecodeError:
+        return "[binary or non-utf8 file omitted]"
+    return text[:max_chars]
+
+
+def build_manage_plan(user_request: str, focus_paths: list[str], max_files: int) -> dict[str, Any]:
+    """Stage-1 planner: read project + analyze request + output a safe, non-executing plan."""
+    scanned = scan_project_files(limit=max_files)
+    sampled_paths = focus_paths if focus_paths else ["README.md", "app/main.py", "tests/test_api.py", "requirements.txt"]
+
+    read_context: dict[str, str] = {}
+    for rel in sampled_paths:
+        try:
+            read_context[rel] = read_project_file_snippet(rel)
+        except HTTPException:
+            read_context[rel] = "[unavailable]"
+
+    lowered = user_request.lower()
+    target_areas: list[str] = []
+    if any(k in lowered for k in ["api", "接口", "route", "endpoint"]):
+        target_areas.append("API 路由层 (app/main.py)")
+    if any(k in lowered for k in ["前端", "ui", "页面", "web"]):
+        target_areas.append("静态前端层 (static/index.html + static/app.js)")
+    if any(k in lowered for k in ["测试", "test", "验证"]):
+        target_areas.append("测试层 (tests/test_api.py)")
+    if any(k in lowered for k in ["模型", "bedrock", "llm", "ai"]):
+        target_areas.append("模型调用层 (call_ai / BedrockClient)")
+    if not target_areas:
+        target_areas.append("默认从后端入口与测试入手")
+
+    involved_files = list(read_context.keys())
+    planner = build_structured_plan(user_goal=user_request, involved_files=involved_files)
+
+    return {
+        "mode": "manage_plan",
+        "scope": {
+            "project_root": str(ROOT),
+            "write_enabled": False,
+            "delete_enabled": False,
+            "high_risk_commands_enabled": False,
+        },
+        "read_files": involved_files,
+        "project_scan": {
+            "total_files_sampled": len(scanned),
+            "sample_files": scanned[: min(30, len(scanned))],
+        },
+        "planner": planner,
+        "analysis": {
+            "request": user_request,
+            "target_areas": target_areas,
+            "notes": [
+                "当前阶段仅提供读取项目、分析项目与输出改动计划。",
+                "不会自动写代码、不会删除文件、不会执行高风险命令。",
+            ],
+        },
+        "proposed_plan": [
+            "Step 1: 阅读并确认目标相关文件（只读）。",
+            "Step 2: 输出最小改动方案（文件级 + 函数级）。",
+            "Step 3: 等待用户确认后再进入实现阶段。",
+            "Step 4: 实现阶段将保持小步增量并附带验证建议。",
+        ],
+        "file_snippets": read_context,
+    }
+
+
+@app.post("/api/manage/plan")
+def manage_plan(payload: ManagePlanRequest) -> dict[str, Any]:
+    """Generate a controlled change plan without performing any write/exec action."""
+    return build_manage_plan(
+        user_request=payload.request,
+        focus_paths=payload.focus_paths,
+        max_files=payload.max_files,
+    )
+
+
+@app.post("/api/manage/execute")
+def manage_execute(payload: ManageExecuteRequest) -> dict[str, Any]:
+    """Apply confirmed, limited edits only for files explicitly approved in planning."""
+    if not payload.confirmed:
+        raise HTTPException(status_code=400, detail="Execution requires explicit confirmed=true.")
+
+    outcome = _execute_and_verify(
+        allowed_files=payload.allowed_files,
+        edits=payload.edits,
+        max_files=payload.max_files,
+        verify_after_execute=payload.verify_after_execute,
+    )
+
+    return {
+        "mode": "manage_execute",
+        "constraints": {
+            "delete_enabled": False,
+            "max_files": payload.max_files,
+            "allowed_files": payload.allowed_files,
+        },
+        **outcome["execution"],
+        "verification": outcome["verification"],
+    }
+
+
+@app.post("/api/manage/verify")
+def manage_verify(payload: ManageVerifyRequest) -> dict[str, Any]:
+    """Run post-change verification manually for a list of changed files."""
+    return {
+        "mode": "manage_verify",
+        "verification": run_post_change_verification(ROOT, payload.changed_files),
+    }
+
+
+def _execute_and_verify(
+    *,
+    allowed_files: list[str],
+    edits: list[ExecuteEditRequest],
+    max_files: int,
+    verify_after_execute: bool,
+) -> dict[str, Any]:
+    """Shared helper for confirmed execution + optional verification."""
+    try:
+        execution = execute_edits(
+            root=ROOT,
+            allowed_files=allowed_files,
+            edits=[
+                FileEdit(
+                    path=item.path,
+                    new_content=item.new_content,
+                    allow_create=item.allow_create,
+                    expected_contains=item.expected_contains,
+                )
+                for item in edits
+            ],
+            max_files=max_files,
+        )
+    except ExecutionValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PathSecurityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    verification = (
+        run_post_change_verification(ROOT, [item["path"] for item in execution.get("changed_files", [])])
+        if verify_after_execute
+        else {"overall_status": "unverifiable", "checks": [], "manual_steps": [], "next_steps": ["Verification skipped"]}
+    )
+    return {"execution": execution, "verification": verification}
+
+
+def run_manage_workflow(payload: ManageWorkflowRequest) -> dict[str, Any]:
+    """Single-entry managed workflow: request -> plan -> confirm -> execute -> verify."""
+    if payload.step == "plan":
+        if not payload.request.strip():
+            raise HTTPException(status_code=400, detail="`request` is required for plan step.")
+        plan = build_manage_plan(payload.request, payload.focus_paths, payload.max_scan_files)
+        return {
+            "workflow_stage": "plan_generated",
+            "next_stage": "execute",
+            "data": plan,
+        }
+
+    if not payload.confirmed:
+        raise HTTPException(status_code=400, detail="Execution requires explicit confirmed=true.")
+
+    outcome = _execute_and_verify(
+        allowed_files=payload.allowed_files,
+        edits=payload.edits,
+        max_files=payload.max_edit_files,
+        verify_after_execute=payload.verify_after_execute,
+    )
+
+    return {
+        "workflow_stage": "completed",
+        "next_stage": "done",
+        "data": outcome,
+    }
+
+
+@app.post("/api/manage/workflow")
+def manage_workflow(payload: ManageWorkflowRequest) -> dict[str, Any]:
+    """Unified managed flow endpoint for planning and confirmed execution."""
+    return run_manage_workflow(payload)
 
 
 @app.on_event("startup")
@@ -422,6 +694,8 @@ def chat(payload: ChatRequest) -> dict[str, Any]:
 
         prompt = (
             "你是可扩展 AI Agent。结合对话历史、历史经验和动态模块输出回答。"
+            "在涉及代码改动、新增模块、功能修改时，必须按受控自我管理规则执行并输出结构化结果。\n"
+            f"规则:\n{CONTROLLED_SELF_MANAGEMENT_RULES}"
             f"\n历史:\n{history}"
             f"\n经验:\n{memories}"
             f"\n模块输出:\n{dynamic_output}"
