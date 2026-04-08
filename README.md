@@ -59,6 +59,8 @@ cp config/tokens.example.json config/tokens.json
 - `GET /api/abilities`: 查看已创建能力。
 - `GET /api/memories`: 查看沉淀经验。
 - `POST /api/manage/plan`: 只读项目分析与改动计划输出（不执行写入/删除/高风险命令）。
+- `POST /api/agent/plan`: 结构化工程计划（read-only，默认需要确认）。
+- `POST /api/agent/execute`: 确认后执行受控工具调用（list/read/search/write/run_command）并返回验证结果。
 - `POST /api/manage/execute`: 在确认后执行受控小步修改（仅允许规划文件、默认不删除）。
 - `POST /api/manage/verify`: 对本次改动执行自动验证（测试/语法/smoke）。
 - `POST /api/manage/workflow`: 串联主流程（plan -> confirm -> execute -> verify）。
@@ -139,8 +141,29 @@ cp config/tokens.example.json config/tokens.json
 - 仅限当前项目目录内操作。
 - 不使用 git / 分支 / commit / PR。
 - 先读代码再改，先给计划并等待确认，再执行修改与验证。
+- 新增受控本地工程 Agent Orchestrator（本地工具调用 + 审批执行 + 验证汇报）。
 - 优先小步增量，保持现有结构与风格。
 - 输出中要包含：已读文件、待改文件、改动原因、风险、验证方式。
 - 路径安全控制：统一路径校验，拦截 `../`、越界绝对路径、以及潜在软链接逃逸。
 
 说明：当前版本通过 Prompt 约束实现“受控流程”，便于先做最小改造；生产环境建议进一步增加执行层面的硬约束（例如沙箱、白名单与审批状态机）。
+
+
+## 6) 本地工程 Agent（MVP）
+
+新增 4 层最小架构：
+
+1. **对话层**：继续复用现有聊天 UI。
+2. **Orchestrator**：新增 `app/orchestrator.py`，负责任务计划与执行编排。
+3. **本地工具层**：新增 `app/agent_tools.py`，提供
+   - `list_dir(path)`
+   - `read_file(path)`
+   - `search_code(query)`
+   - `write_file(path, content)`
+   - `run_command(cmd, cwd=".")`
+4. **安全控制层**：工具统一走 `validate_project_path`，命令执行只允许白名单前缀，写入与命令执行要求明确确认。
+
+默认流程：
+`先读代码 -> 再出计划 -> 确认后修改 -> 验证 -> 汇报`。
+
+说明：当前版本在本地执行层已具备工具调用与审批控制；模型编排先采用现有后端主循环，后续可平滑替换到 Responses API 循环。

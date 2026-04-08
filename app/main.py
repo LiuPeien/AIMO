@@ -20,7 +20,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.agent_tools import LocalToolbox, ToolValidationError
 from app.executor import ExecutionValidationError, FileEdit, execute_edits
+from app.orchestrator import AgentOrchestrator
 from app.path_safety import PathSecurityError, safe_iter_files, safe_read_text, safe_write_text, validate_project_path
 from app.planner import build_structured_plan
 from app.verifier import run_post_change_verification
@@ -222,6 +224,21 @@ class EvolveRequest(BaseModel):
     requirement: str = Field(min_length=6)
 
 
+
+
+class ToolActionRequest(BaseModel):
+    tool: Literal["list_dir", "read_file", "search_code", "write_file", "run_command"]
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentPlanRequest(BaseModel):
+    request: str = Field(min_length=4)
+
+
+class AgentExecuteRequest(BaseModel):
+    confirmed: bool = False
+    actions: list[ToolActionRequest] = Field(default_factory=list)
+
 class ManagePlanRequest(BaseModel):
     request: str = Field(min_length=4)
     focus_paths: list[str] = Field(default_factory=list)
@@ -258,6 +275,9 @@ class ManageWorkflowRequest(BaseModel):
     max_edit_files: int = Field(default=5, ge=1, le=20)
     verify_after_execute: bool = True
 
+
+TOOLBOX = LocalToolbox(ROOT)
+ORCHESTRATOR = AgentOrchestrator(TOOLBOX)
 
 app = FastAPI(title="Simple AI Agent")
 app.add_middleware(
@@ -511,6 +531,51 @@ def build_manage_plan(user_request: str, focus_paths: list[str], max_files: int)
         ],
         "file_snippets": read_context,
     }
+
+
+@app.post("/api/agent/plan")
+def agent_plan(payload: AgentPlanRequest) -> dict[str, Any]:
+    """Generate structured plan for controlled local engineering workflow."""
+    try:
+        result = ORCHESTRATOR.plan(payload.request)
+    except ToolValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "mode": "agent_plan",
+        "workflow": "read_code -> plan -> await_confirm -> modify -> verify -> report",
+        **result,
+    }
+
+
+@app.post("/api/agent/execute")
+def agent_execute(payload: AgentExecuteRequest) -> dict[str, Any]:
+    """Execute confirmed tool actions via local controlled executor only."""
+    try:
+        result = ORCHESTRATOR.execute(
+            [{"tool": item.tool, "args": item.args} for item in payload.actions],
+            confirmed=payload.confirmed,
+        )
+    except ToolValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PathSecurityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    changed_files: list[str] = []
+    for output in result.get("outputs", []):
+        if output.get("tool") == "write_file":
+            path = output.get("result", {}).get("path")
+            if isinstance(path, str):
+                changed_files.append(path)
+
+    verification = run_post_change_verification(ROOT, changed_files) if changed_files else {
+        "overall_status": "unverifiable",
+        "checks": [],
+        "manual_steps": [],
+        "next_steps": ["No file changes requested"],
+    }
+
+    return {"mode": "agent_execute", "execution": result, "verification": verification}
 
 
 @app.post("/api/manage/plan")
