@@ -30,7 +30,7 @@ export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
 export AWS_REGION=us-east-1
 # 可选：自定义 UI 下拉模型列表
-export BEDROCK_MODELS="anthropic.claude-3-5-sonnet-20240620-v1:0,amazon.nova-pro-v1:0"
+export BEDROCK_MODELS="anthropic.claude-sonnet-4-6,anthropic.claude-opus-4-6-v1,anthropic.claude-haiku-4-5-20251001-v1:0"
 ```
 
 ### 方式 B：配置文件（适合统一管理 token）
