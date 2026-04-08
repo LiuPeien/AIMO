@@ -769,6 +769,42 @@ def session_messages(session_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+
+
+def run_agent_chat_turn(model_id: str, user_message: str, *, confirmed: bool) -> dict[str, Any]:
+    """Run one structured agent turn: model output -> parse -> optional local tool execution."""
+    prompt = build_chat_prompt(history="", memories=[], dynamic_output="", user_message=user_message)
+    raw = call_ai(model_id, prompt)
+    parsed = ORCHESTRATOR.parse_model_response(raw)
+
+    actions = parsed.get("actions", [])
+    if not actions:
+        return {
+            "mode": "agent",
+            "model_reply": raw,
+            "parsed": parsed.get("parsed", False),
+            "actions": [],
+            "execution": {"executed": False, "reason": "No actionable tool calls returned by model"},
+        }
+
+    if not confirmed:
+        return {
+            "mode": "agent",
+            "model_reply": raw,
+            "parsed": parsed.get("parsed", False),
+            "actions": actions,
+            "execution": {"executed": False, "reason": "Awaiting explicit confirmation"},
+        }
+
+    execution = ORCHESTRATOR.execute(actions, confirmed=True)
+    return {
+        "mode": "agent",
+        "model_reply": raw,
+        "parsed": parsed.get("parsed", False),
+        "actions": actions,
+        "execution": execution,
+    }
+
 @app.post("/api/chat")
 def chat(payload: ChatRequest) -> dict[str, Any]:
     conn = get_conn()
@@ -787,6 +823,7 @@ def chat(payload: ChatRequest) -> dict[str, Any]:
     )
 
     evolve_mode = payload.mode == "evolve" or payload.message.strip().startswith("/evolve ")
+    agent_mode = payload.mode == "agent" or payload.message.strip().startswith("/agent ")
     if evolve_mode:
         requirement = payload.message.replace("/evolve", "", 1).strip() or payload.message.strip()
         created = create_module_from_ai(payload.model_id, requirement)
@@ -796,6 +833,13 @@ def chat(payload: ChatRequest) -> dict[str, Any]:
             "你现在可以继续在本会话里直接使用这个新能力。"
         )
         memories = [f"evolution:{created['module_name']}"]
+        dynamic_output = ""
+    elif agent_mode:
+        message = payload.message.replace("/agent", "", 1).strip() or payload.message.strip()
+        confirmed = "#confirm" in payload.message
+        result = run_agent_chat_turn(payload.model_id, message, confirmed=confirmed)
+        reply = json.dumps(result, ensure_ascii=False)
+        memories = ["agent_mode"]
         dynamic_output = ""
     else:
         memories = fetch_relevant_memories(conn, payload.message)

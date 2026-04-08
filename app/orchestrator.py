@@ -3,6 +3,7 @@ from __future__ import annotations
 """Controlled orchestrator for planning and confirmed execution."""
 
 from dataclasses import dataclass
+import json
 from typing import Any
 
 from app.agent_tools import LocalToolbox, ToolValidationError
@@ -72,3 +73,53 @@ class AgentOrchestrator:
                 raise ToolValidationError(f"unsupported tool: {tool}")
 
         return {"executed": True, "outputs": outputs}
+
+    def parse_model_response(self, raw_text: str) -> dict[str, Any]:
+        """Parse model JSON and normalize tool requests into executable actions.
+
+        Supported shapes:
+        - {"tool_calls": [{"tool": "read_file", "args": {"path": "..."}}]}
+        - legacy prompt shape with `tool_calls_request`:
+          {"tool_calls_request": {"commands": [...], "files_to_read": [...]}}
+        """
+        try:
+            payload = json.loads(raw_text)
+        except json.JSONDecodeError:
+            return {"parsed": False, "raw": raw_text, "actions": []}
+
+        actions: list[dict[str, Any]] = []
+        direct_calls = payload.get("tool_calls")
+        if isinstance(direct_calls, list):
+            for call in direct_calls:
+                if not isinstance(call, dict):
+                    continue
+                tool = call.get("tool")
+                args = call.get("args", {})
+                if isinstance(tool, str) and isinstance(args, dict):
+                    actions.append({"tool": tool, "args": args})
+
+        request_block = payload.get("tool_calls_request")
+        if isinstance(request_block, dict):
+            files_to_read = request_block.get("files_to_read", [])
+            if isinstance(files_to_read, list):
+                for item in files_to_read:
+                    if isinstance(item, str) and item.strip():
+                        actions.append({"tool": "read_file", "args": {"path": item.strip()}})
+
+            commands = request_block.get("commands", [])
+            if isinstance(commands, list):
+                for cmd in commands:
+                    if isinstance(cmd, str) and cmd.strip():
+                        actions.append({"tool": "run_command", "args": {"cmd": cmd.strip(), "cwd": "."}})
+
+        # de-duplicate while preserving order
+        dedup: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for action in actions:
+            marker = json.dumps(action, ensure_ascii=False, sort_keys=True)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            dedup.append(action)
+
+        return {"parsed": True, "payload": payload, "actions": dedup}
