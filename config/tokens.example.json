@@ -6,7 +6,7 @@
     "region": "us-east-1"
   },
   "bedrock": {
-    "models": "anthropic.claude-3-5-sonnet-20240620-v1:0,amazon.nova-pro-v1:0"
+    "models": "anthropic.claude-sonnet-4-6,anthropic.claude-opus-4-6-v1,anthropic.claude-haiku-4-5-20251001-v1:0"
   },
   "other_modules": {
     "example_api_token": "replace-me"

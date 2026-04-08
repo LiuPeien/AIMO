@@ -112,9 +112,9 @@ def configured_models() -> list[str]:
     if raw.strip():
         return [m.strip() for m in raw.split(",") if m.strip()]
     return [
-        "anthropic.claude-3-5-sonnet-20240620-v1:0",
-        "amazon.nova-pro-v1:0",
-        "meta.llama3-1-70b-instruct-v1:0",
+        "anthropic.claude-sonnet-4-6",
+        "anthropic.claude-opus-4-6-v1",
+        "anthropic.claude-haiku-4-5-20251001-v1:0",
     ]
 
 
