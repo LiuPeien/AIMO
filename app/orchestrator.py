@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from typing import Any
+import time
+from typing import Any, Callable
 
 from app.agent_tools import LocalToolbox, ToolValidationError
 
@@ -19,9 +20,16 @@ class PlanResult:
     verify_commands: list[str]
 
 
+@dataclass(frozen=True)
+class ReactRuntimeConfig:
+    max_steps: int = 40
+    timeout_seconds: int = 300
+
+
 class AgentOrchestrator:
-    def __init__(self, toolbox: LocalToolbox) -> None:
+    def __init__(self, toolbox: LocalToolbox, *, react_config: ReactRuntimeConfig | None = None) -> None:
         self.toolbox = toolbox
+        self.react_config = react_config or ReactRuntimeConfig()
 
     def plan(self, user_request: str) -> dict[str, Any]:
         goal = " ".join(user_request.split()).strip()
@@ -92,6 +100,131 @@ class AgentOrchestrator:
             process.append(step)
 
         return {"executed": True, "process": process, "outputs": outputs}
+
+    def run_react_loop(
+        self,
+        *,
+        model_infer: Callable[[str], str],
+        initial_prompt: str,
+        confirmed: bool,
+    ) -> dict[str, Any]:
+        """Run a bounded Think->Act->Observe loop and return full trace."""
+        started_at = time.monotonic()
+        prompt = initial_prompt
+        steps: list[dict[str, Any]] = []
+        all_actions: list[dict[str, Any]] = []
+        execution_process: list[dict[str, Any]] = []
+        execution_outputs: list[dict[str, Any]] = []
+        seen_actions: set[str] = set()
+
+        for idx in range(1, self.react_config.max_steps + 1):
+            if time.monotonic() - started_at > self.react_config.timeout_seconds:
+                return {
+                    "completed": False,
+                    "reason": "timeout",
+                    "steps": steps,
+                    "actions": all_actions,
+                    "execution": {
+                        "executed": bool(execution_process),
+                        "process": execution_process,
+                        "outputs": execution_outputs,
+                        "reason": f"Reached timeout={self.react_config.timeout_seconds}s",
+                    },
+                }
+
+            raw = model_infer(prompt)
+            parsed = self.parse_model_response(raw)
+            actions = parsed.get("actions", [])
+
+            deduped_actions: list[dict[str, Any]] = []
+            for action in actions:
+                marker = json.dumps(action, ensure_ascii=False, sort_keys=True)
+                if marker in seen_actions:
+                    continue
+                seen_actions.add(marker)
+                deduped_actions.append(action)
+
+            step_trace: dict[str, Any] = {
+                "step": idx,
+                "model_reply": raw,
+                "parsed": parsed.get("parsed", False),
+                "actions": deduped_actions,
+            }
+
+            if not deduped_actions:
+                step_trace["state"] = "answer"
+                steps.append(step_trace)
+                return {
+                    "completed": True,
+                    "reason": "answered",
+                    "steps": steps,
+                    "model_reply": raw,
+                    "actions": all_actions,
+                    "execution": {
+                        "executed": bool(execution_process),
+                        "process": execution_process,
+                        "outputs": execution_outputs,
+                    },
+                }
+
+            all_actions.extend(deduped_actions)
+            if not confirmed:
+                step_trace["state"] = "await_confirm"
+                steps.append(step_trace)
+                return {
+                    "completed": False,
+                    "reason": "await_confirm",
+                    "steps": steps,
+                    "model_reply": raw,
+                    "actions": all_actions,
+                    "execution": {
+                        "executed": False,
+                        "reason": "Awaiting explicit confirmation",
+                        "process": [],
+                        "outputs": [],
+                    },
+                }
+
+            execution = self.execute(deduped_actions, confirmed=True)
+            step_trace["state"] = "observe"
+            step_trace["execution"] = execution
+            steps.append(step_trace)
+
+            execution_process.extend(execution.get("process", []))
+            execution_outputs.extend(execution.get("outputs", []))
+            if execution.get("executed") is False:
+                return {
+                    "completed": False,
+                    "reason": "execution_failed",
+                    "steps": steps,
+                    "actions": all_actions,
+                    "execution": {
+                        "executed": False,
+                        "process": execution_process,
+                        "outputs": execution_outputs,
+                        "error": execution.get("error"),
+                    },
+                }
+
+            prompt = (
+                f"{initial_prompt}\n\n"
+                f"[ReAct Step {idx} Observation]\n"
+                f"{json.dumps(execution, ensure_ascii=False)}\n"
+                "如果信息已经足够，请直接给最终回答且不再请求工具。"
+            )
+
+        return {
+            "completed": False,
+            "reason": "max_steps_reached",
+            "steps": steps,
+            "actions": all_actions,
+            "execution": {
+                "executed": bool(execution_process),
+                "process": execution_process,
+                "outputs": execution_outputs,
+                "reason": f"Reached MAX_REACT_STEPS={self.react_config.max_steps}",
+            },
+        }
 
     def parse_model_response(self, raw_text: str) -> dict[str, Any]:
         """Parse model JSON and normalize tool requests into executable actions.

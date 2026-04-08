@@ -772,37 +772,32 @@ def session_messages(session_id: str) -> list[dict[str, Any]]:
 
 
 def run_agent_chat_turn(model_id: str, user_message: str, *, confirmed: bool) -> dict[str, Any]:
-    """Run one structured agent turn: model output -> parse -> optional local tool execution."""
+    """Run one bounded ReAct turn: Think -> Act -> Observe, with max steps and timeout."""
     prompt = build_chat_prompt(history="", memories=[], dynamic_output="", user_message=user_message)
-    raw = call_ai(model_id, prompt)
-    parsed = ORCHESTRATOR.parse_model_response(raw)
+    loop_result = ORCHESTRATOR.run_react_loop(
+        model_infer=lambda prepared_prompt: call_ai(model_id, prepared_prompt),
+        initial_prompt=prompt,
+        confirmed=confirmed,
+    )
 
-    actions = parsed.get("actions", [])
-    if not actions:
-        return {
-            "mode": "agent",
-            "model_reply": raw,
-            "parsed": parsed.get("parsed", False),
-            "actions": [],
-            "execution": {"executed": False, "reason": "No actionable tool calls returned by model"},
-        }
+    latest_reply = ""
+    steps = loop_result.get("steps", [])
+    if steps:
+        latest_reply = steps[-1].get("model_reply", "")
 
-    if not confirmed:
-        return {
-            "mode": "agent",
-            "model_reply": raw,
-            "parsed": parsed.get("parsed", False),
-            "actions": actions,
-            "execution": {"executed": False, "reason": "Awaiting explicit confirmation"},
-        }
-
-    execution = ORCHESTRATOR.execute(actions, confirmed=True)
     return {
         "mode": "agent",
-        "model_reply": raw,
-        "parsed": parsed.get("parsed", False),
-        "actions": actions,
-        "execution": execution,
+        "model_reply": latest_reply,
+        "parsed": any(step.get("parsed", False) for step in steps),
+        "actions": loop_result.get("actions", []),
+        "execution": loop_result.get("execution", {}),
+        "react": {
+            "completed": loop_result.get("completed", False),
+            "reason": loop_result.get("reason", "unknown"),
+            "steps": steps,
+            "max_steps": ORCHESTRATOR.react_config.max_steps,
+            "timeout_seconds": ORCHESTRATOR.react_config.timeout_seconds,
+        },
     }
 
 
@@ -841,6 +836,13 @@ def build_agent_user_report(agent_result: dict[str, Any]) -> str:
             lines.append(f"  {idx}. {tool}: {preview}")
     if execution.get("error"):
         lines.append(f"- 错误: {execution.get('error')}")
+    react = agent_result.get("react", {})
+    lines.append("")
+    lines.append("[ReAct 状态]")
+    lines.append(f"- completed: {react.get('completed', False)}")
+    lines.append(f"- reason: {react.get('reason', 'unknown')}")
+    lines.append(f"- steps: {len(react.get('steps', []))}/{react.get('max_steps', 0)}")
+    lines.append(f"- timeout_seconds: {react.get('timeout_seconds', 0)}")
     lines.append("")
     lines.append("提示：若需要真正执行，请在消息中带上 #confirm。")
     return "\n".join(lines)
