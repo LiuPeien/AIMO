@@ -1,6 +1,11 @@
 from fastapi.testclient import TestClient
 
-from app.main import app, build_evolution_prompt, init_db
+from app.main import (
+    app,
+    build_chat_prompt,
+    build_evolution_prompt,
+    init_db,
+)
 
 
 def test_models_endpoint():
@@ -56,6 +61,19 @@ def test_evolution_prompt_contains_controlled_rules():
     prompt = build_evolution_prompt('新增一个代码分析能力')
     assert '受控自我管理执行规则' in prompt
     assert '先理解现状 -> 再给改动计划 -> 等用户确认' in prompt
+
+
+def test_chat_prompt_contains_structured_json_instruction():
+    prompt = build_chat_prompt(
+        history='user: hi',
+        memories=['m1'],
+        dynamic_output='',
+        user_message='请优化 UI',
+    )
+    assert '每次回答都要先返回结构化结果' in prompt
+    assert '"task_analysis"' in prompt
+    assert '"tool_calls_request"' in prompt
+    assert '先读代码 -> 再出计划 -> 确认后修改 -> 验证 -> 汇报' in prompt
 
 
 def test_manage_plan_readonly_mode():

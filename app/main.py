@@ -46,6 +46,36 @@ CONTROLLED_SELF_MANAGEMENT_RULES = """
 10) 若结构不支持目标能力，先给最小改造路径。
 """.strip()
 
+STRUCTURED_RESPONSE_INSTRUCTION = """
+每次回答都要先返回结构化结果，优先使用 JSON（不要 markdown 代码块包裹）：
+{
+  "task_analysis": {
+    "goal": "用户目标",
+    "scope": "影响范围",
+    "assumptions": [],
+    "risks": []
+  },
+  "change_plan": [
+    {"step": 1, "title": "先读代码", "details": "先读取哪些文件"}
+  ],
+  "tool_calls_request": {
+    "commands": ["建议本地执行的命令，尽量只读命令起步"],
+    "files_to_read": ["需要读取的文件路径"],
+    "files_to_modify": ["计划修改的文件路径"]
+  },
+  "workflow_control": {
+    "current_stage": "read_code|plan|await_confirm|modify|verify|report",
+    "need_user_confirm": true,
+    "next_action": "下一步动作"
+  }
+}
+要求：
+- 严格遵守“先读代码 -> 再出计划 -> 确认后修改 -> 验证 -> 汇报”。
+- 所有路径与命令都限制在当前项目目录内，不访问项目外部。
+- 如果用户尚未确认，不输出执行写入的最终动作。
+""".strip()
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -332,6 +362,25 @@ def build_evolution_prompt(requirement: str) -> str:
         f"{CONTROLLED_SELF_MANAGEMENT_RULES}\n"
         "用户需求: "
         + requirement
+    )
+
+
+def build_chat_prompt(
+    *,
+    history: str,
+    memories: list[str],
+    dynamic_output: str,
+    user_message: str,
+) -> str:
+    return (
+        "你是可扩展 AI Agent。结合对话历史、历史经验和动态模块输出回答。"
+        "在涉及代码改动、新增模块、功能修改时，必须按受控自我管理规则执行并输出结构化结果。\n"
+        f"规则:\n{CONTROLLED_SELF_MANAGEMENT_RULES}\n"
+        f"结构化输出规范:\n{STRUCTURED_RESPONSE_INSTRUCTION}\n"
+        f"历史:\n{history}"
+        f"\n经验:\n{memories}"
+        f"\n模块输出:\n{dynamic_output}"
+        f"\n用户问题:\n{user_message}"
     )
 
 
@@ -692,14 +741,11 @@ def chat(payload: ChatRequest) -> dict[str, Any]:
         ).fetchall()
         history = "\n".join(f"{r['role']}: {r['content']}" for r in reversed(prior))
 
-        prompt = (
-            "你是可扩展 AI Agent。结合对话历史、历史经验和动态模块输出回答。"
-            "在涉及代码改动、新增模块、功能修改时，必须按受控自我管理规则执行并输出结构化结果。\n"
-            f"规则:\n{CONTROLLED_SELF_MANAGEMENT_RULES}"
-            f"\n历史:\n{history}"
-            f"\n经验:\n{memories}"
-            f"\n模块输出:\n{dynamic_output}"
-            f"\n用户问题:\n{payload.message}"
+        prompt = build_chat_prompt(
+            history=history,
+            memories=memories,
+            dynamic_output=dynamic_output,
+            user_message=payload.message,
         )
         reply = call_ai(payload.model_id, prompt)
 
