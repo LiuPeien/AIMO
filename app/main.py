@@ -20,7 +20,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from app.agent_tools import LocalToolbox, ToolValidationError
 from app.executor import ExecutionValidationError, FileEdit, execute_edits
+from app.orchestrator import AgentOrchestrator
 from app.path_safety import PathSecurityError, safe_iter_files, safe_read_text, safe_write_text, validate_project_path
 from app.planner import build_structured_plan
 from app.verifier import run_post_change_verification
@@ -222,6 +224,21 @@ class EvolveRequest(BaseModel):
     requirement: str = Field(min_length=6)
 
 
+
+
+class ToolActionRequest(BaseModel):
+    tool: Literal["list_dir", "read_file", "search_code", "write_file", "run_command"]
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentPlanRequest(BaseModel):
+    request: str = Field(min_length=4)
+
+
+class AgentExecuteRequest(BaseModel):
+    confirmed: bool = False
+    actions: list[ToolActionRequest] = Field(default_factory=list)
+
 class ManagePlanRequest(BaseModel):
     request: str = Field(min_length=4)
     focus_paths: list[str] = Field(default_factory=list)
@@ -258,6 +275,9 @@ class ManageWorkflowRequest(BaseModel):
     max_edit_files: int = Field(default=5, ge=1, le=20)
     verify_after_execute: bool = True
 
+
+TOOLBOX = LocalToolbox(ROOT)
+ORCHESTRATOR = AgentOrchestrator(TOOLBOX)
 
 app = FastAPI(title="Simple AI Agent")
 app.add_middleware(
@@ -513,6 +533,51 @@ def build_manage_plan(user_request: str, focus_paths: list[str], max_files: int)
     }
 
 
+@app.post("/api/agent/plan")
+def agent_plan(payload: AgentPlanRequest) -> dict[str, Any]:
+    """Generate structured plan for controlled local engineering workflow."""
+    try:
+        result = ORCHESTRATOR.plan(payload.request)
+    except ToolValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "mode": "agent_plan",
+        "workflow": "read_code -> plan -> await_confirm -> modify -> verify -> report",
+        **result,
+    }
+
+
+@app.post("/api/agent/execute")
+def agent_execute(payload: AgentExecuteRequest) -> dict[str, Any]:
+    """Execute confirmed tool actions via local controlled executor only."""
+    try:
+        result = ORCHESTRATOR.execute(
+            [{"tool": item.tool, "args": item.args} for item in payload.actions],
+            confirmed=payload.confirmed,
+        )
+    except ToolValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PathSecurityError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    changed_files: list[str] = []
+    for output in result.get("outputs", []):
+        if output.get("tool") == "write_file":
+            path = output.get("result", {}).get("path")
+            if isinstance(path, str):
+                changed_files.append(path)
+
+    verification = run_post_change_verification(ROOT, changed_files) if changed_files else {
+        "overall_status": "unverifiable",
+        "checks": [],
+        "manual_steps": [],
+        "next_steps": ["No file changes requested"],
+    }
+
+    return {"mode": "agent_execute", "execution": result, "verification": verification}
+
+
 @app.post("/api/manage/plan")
 def manage_plan(payload: ManagePlanRequest) -> dict[str, Any]:
     """Generate a controlled change plan without performing any write/exec action."""
@@ -704,6 +769,42 @@ def session_messages(session_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+
+
+def run_agent_chat_turn(model_id: str, user_message: str, *, confirmed: bool) -> dict[str, Any]:
+    """Run one structured agent turn: model output -> parse -> optional local tool execution."""
+    prompt = build_chat_prompt(history="", memories=[], dynamic_output="", user_message=user_message)
+    raw = call_ai(model_id, prompt)
+    parsed = ORCHESTRATOR.parse_model_response(raw)
+
+    actions = parsed.get("actions", [])
+    if not actions:
+        return {
+            "mode": "agent",
+            "model_reply": raw,
+            "parsed": parsed.get("parsed", False),
+            "actions": [],
+            "execution": {"executed": False, "reason": "No actionable tool calls returned by model"},
+        }
+
+    if not confirmed:
+        return {
+            "mode": "agent",
+            "model_reply": raw,
+            "parsed": parsed.get("parsed", False),
+            "actions": actions,
+            "execution": {"executed": False, "reason": "Awaiting explicit confirmation"},
+        }
+
+    execution = ORCHESTRATOR.execute(actions, confirmed=True)
+    return {
+        "mode": "agent",
+        "model_reply": raw,
+        "parsed": parsed.get("parsed", False),
+        "actions": actions,
+        "execution": execution,
+    }
+
 @app.post("/api/chat")
 def chat(payload: ChatRequest) -> dict[str, Any]:
     conn = get_conn()
@@ -722,6 +823,7 @@ def chat(payload: ChatRequest) -> dict[str, Any]:
     )
 
     evolve_mode = payload.mode == "evolve" or payload.message.strip().startswith("/evolve ")
+    agent_mode = payload.mode == "agent" or payload.message.strip().startswith("/agent ")
     if evolve_mode:
         requirement = payload.message.replace("/evolve", "", 1).strip() or payload.message.strip()
         created = create_module_from_ai(payload.model_id, requirement)
@@ -731,6 +833,13 @@ def chat(payload: ChatRequest) -> dict[str, Any]:
             "你现在可以继续在本会话里直接使用这个新能力。"
         )
         memories = [f"evolution:{created['module_name']}"]
+        dynamic_output = ""
+    elif agent_mode:
+        message = payload.message.replace("/agent", "", 1).strip() or payload.message.strip()
+        confirmed = "#confirm" in payload.message
+        result = run_agent_chat_turn(payload.model_id, message, confirmed=confirmed)
+        reply = json.dumps(result, ensure_ascii=False)
+        memories = ["agent_mode"]
         dynamic_output = ""
     else:
         memories = fetch_relevant_memories(conn, payload.message)
